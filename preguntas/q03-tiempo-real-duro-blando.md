@@ -2,13 +2,13 @@
 
 > Contraste la filosofía determinista de los algoritmos de tiempo real (donde llegar tarde equivale a un fallo catastrófico) frente a los planificadores de propósito general. ¿Por qué agregar más potencia de CPU no convierte automáticamente un sistema estándar en uno de tiempo real?
 
-**Responsable:** _(nombre)_ · **Estado:** ☐ Prompt ☐ Respuesta IA ☐ Crítica individual ☐ Solución unificada
+**Responsable:** _(nombre)_ · **Estado:** ☑ Prompt ☑ Respuesta IA ☐ Crítica individual ☐ Solución unificada
 
 ---
 
 ## 1. Prompt a la IA
 
-**Modelo usado:** _(ej. Claude Opus 5.5 / ChatGPT / Gemini, con fecha)_
+**Modelo usado:** Claude Opus 5.5 (Anthropic), 2026-11-20
 
 ```text
 Actúa como arquitecto senior de sistemas operativos con experiencia en el planificador del kernel de Linux y en sistemas de producción.
@@ -27,7 +27,38 @@ Restricciones:
 
 ## 2. Respuesta de la IA
 
-<!-- Pegar la salida tal cual, sin alterar los conceptos clave. Si es muy larga, un resumen fiel e indicarlo. -->
+**Dos filosofías distintas**
+
+- Un **planificador de propósito general** optimiza el caso promedio: throughput, latencia media y equidad.
+- Un **sistema de tiempo real** optimiza el **peor caso**: lo importante no es ser rápido sino que cada tarea termine antes de su *deadline*, siempre. En **tiempo real duro** (control de frenos, marcapasos, aviónica) perder un deadline es un fallo del sistema; en **tiempo real blando** (streaming, VoIP) se degrada la calidad pero el sistema sigue siendo útil.
+
+Por eso los algoritmos de tiempo real (Rate Monotonic, EDF) vienen acompañados de **análisis de planificabilidad**: por ejemplo, con Rate Monotonic un conjunto de n tareas periódicas es planificable si la utilización es ≤ n(2^(1/n) − 1) (≈ 69 % para n grande); con EDF, si es ≤ 100 %.
+
+**Por qué más CPU no convierte un sistema en tiempo real**
+
+Más potencia reduce el tiempo **promedio**, pero el tiempo real depende de que el **peor caso esté acotado**. Las fuentes de latencia no acotada no desaparecen con más GHz:
+
+1. *Secciones no preemptibles del kernel* y manejadores de interrupciones largos.
+2. *Inversión de prioridades* en locks compartidos.
+3. *Efectos de hardware*: fallos de caché, TLB, interferencia entre núcleos por la L3 compartida, SMIs (System Management Interrupts) invisibles para el SO y escalado dinámico de frecuencia.
+4. *Paginación*: un fallo de página puede costar milisegundos si va a disco.
+
+Un CPU más rápido con latencia de peor caso no acotada sigue sin poder garantizar deadlines.
+
+**Mecanismos en Linux**
+
+- Políticas `SCHED_FIFO` y `SCHED_RR` (prioridades 1–99) y `SCHED_DEADLINE` (desde Linux 3.14, basada en EDF + Constant Bandwidth Server, con control de admisión).
+- **PREEMPT_RT**: hace preemptible casi todo el kernel (interrupciones en hilos, spinlocks convertidos en rt_mutex con herencia de prioridad). Se integró a la rama principal en **Linux 6.12 (2024)**.
+- Prácticas complementarias: `mlockall()` para evitar paginación, `isolcpus`/`nohz_full` para aislar núcleos.
+
+**Trade-offs**
+
+1. *Determinismo vs. throughput*: PREEMPT_RT reduce la latencia máxima (típicamente a decenas de µs) a costa de algo de throughput por más preempción y locks más caros.
+2. *Reserva de capacidad vs. eficiencia*: garantizar deadlines exige dimensionar por el peor caso (WCET), dejando CPU ociosa la mayor parte del tiempo.
+
+**Ejemplo real**: controladores industriales y robots (por ejemplo con ROS 2) corren Linux con PREEMPT_RT; para tiempo real duro certificable (aviónica, automoción) se usan RTOS como VxWorks, QNX o Zephyr.
+
+**Supuestos de hardware**: CPU embebida o x86 con temporizadores de alta resolución; sin hipervisor de por medio.
 
 ## 3. Análisis crítico individual
 
