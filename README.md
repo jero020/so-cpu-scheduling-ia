@@ -19,7 +19,7 @@ Cada pregunta tiene su archivo en [`preguntas/`](preguntas) con los cuatro compo
 3. **Análisis crítico individual**: análisis del integrante sobre la respuesta de la IA.
 4. **Solución unificada del equipo**: postura técnica definitiva.
 
-El formato vacío está en [`plantilla.md`](plantilla.md), el plan de trabajo en [`docs/`](docs) y el PDF de entrega en [`entrega/`](entrega).
+El formato vacío está en [`plantilla.md`](plantilla.md), el plan de trabajo en [`docs/`](docs) y el PDF de entrega en [`entrega/Entrega_Final_SO_Eje_CPU_Jeronimo_Velez.pdf`](entrega/Entrega_Final_SO_Eje_CPU_Jeronimo_Velez.pdf).
 
 ## Preguntas
 
@@ -43,8 +43,7 @@ so-cpu-scheduling-ia/
 ├── README.md
 ├── plantilla.md      # formato de 4 componentes
 ├── preguntas/        # q01 … q10
-├── diagramas/        # imágenes o fuentes de diagramas
 ├── fuentes.md        # bibliografía para validar a la IA
 ├── docs/             # plan de trabajo
-└── entrega/          # documento final exportado
+└── entrega/          # PDF final de la entrega
 ```
