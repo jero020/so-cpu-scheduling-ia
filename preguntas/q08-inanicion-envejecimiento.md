@@ -2,7 +2,7 @@
 
 > Explore la justificación conceptual del mecanismo de envejecimiento ('Priority Aging') en colas multinivel. ¿Bajo qué condiciones una decisión algorítmica legítima de priorizar siempre lo más urgente puede paralizar indefinidamente tareas de mantenimiento esenciales?
 
-**Responsable:** _(nombre)_ · **Estado:** ☑ Prompt ☑ Respuesta IA ☐ Crítica individual ☐ Solución unificada
+**Responsable:** Jerónimo Vélez Acosta · **Estado:** ☑ Prompt ☑ Respuesta IA ☑ Crítica individual ☑ Solución unificada
 
 ---
 
@@ -83,51 +83,60 @@ planificar():
 
 ## 3. Análisis crítico individual
 
-<!-- Borrar las secciones de integrantes que no existan. Cada quien escribe la suya. -->
+### Jerónimo Vélez Acosta
 
-### Integrante A — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante B — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante C — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante D — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante E — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
+- **Aciertos y cumplimiento:** Articula sólidamente la diferencia entre equidad instantánea y garantía de progreso (*liveness*), ilustra con ejemplos reales de sistemas operativos (planificador O(1) de Linux y *priority boosting* en Windows) y señala las consecuencias sistémicas de paralizar tareas de mantenimiento como `vacuum` en PostgreSQL o la rotación de logs.
+- **Vacíos y puntos críticos:**
+  - *Fallos lógicos y de diseño en el pseudocódigo:*
+    1. En la sección `cada tick del reloj`, el pseudocódigo promueve tareas de `cola[n]` a `cola[n-1]` inmediatamente al alcanzar `UMBRAL_ESPERA`, pero en `planificar()`, si una tarea no consume todo su *quantum* (comportamiento típico I/O-bound), se vuelve a encolar en su cola actual `cola[n]` y resetea `t.espera = 0`. Esto implica que una tarea envejecida que subió a `cola[0]` (máxima prioridad) y hace una operación de I/O corta se queda permanentemente en `cola[0]`, causando una **inversión de prioridad permanente** y desvirtuando el propósito de las colas inferiores.
+    2. El recorrido en cada *tick* sobre todas las colas (O(N) respecto al número de procesos listos) viola el principio de escalabilidad en tiempo constante O(1) de los planificadores modernos; en implementaciones reales se utilizan marcas de tiempo (*timestamps* de encolado) evaluadas de forma perezosa (*lazy*) en lugar de incrementar contadores en cada interrupción de reloj.
 
 ## 4. Solución unificada del equipo
 
-<!-- Postura técnica definitiva, justificada con teoría. Añadir pseudocódigo, diagrama (en /diagramas) o syscalls cuando aplique. -->
-
 ### Postura del equipo
+
+El envejecimiento está justificado porque convierte una política "lo urgente primero" en una con garantía de progreso. Sin embargo, el pseudocódigo de la IA tiene dos fallas: una tarea envejecida puede quedarse para siempre en la cola más alta, y recorrer todas las colas en cada tick no escala. Proponemos una versión corregida.
 
 ### Justificación
 
+- En la versión de la IA, una tarea que sube por envejecimiento a la cola 0 y luego hace E/S corta se reencola en la cola 0 con `espera = 0`, así que se queda ahí indefinidamente aunque su prioridad original fuera baja.
+- Incrementar un contador en cada tick para todas las tareas listas cuesta O(N) por interrupción de reloj. Los planificadores reales registran la marca de tiempo de encolado y evalúan la espera de forma perezosa al elegir.
+
+### Pseudocódigo corregido
+
+```text
+encolar(t, nivel):
+    t.nivel_actual = nivel
+    t.t_encolado = ahora()
+    insertar t al final de cola[nivel]
+
+elegir():
+    para n desde 0 hasta N_NIVELES-1:
+        para cada t al frente de cola[n]:              // revisión perezosa, solo el frente
+            si n > 0 y ahora() - t.t_encolado >= UMBRAL_ESPERA:
+                sacar t; t.boost = verdadero
+                encolar(t, n-1)                        // envejece un nivel
+        si cola[n] no vacía:
+            retornar sacar_frente(cola[n])
+
+al_terminar_quantum(t, uso_completo):
+    si t.boost:
+        t.boost = falso
+        encolar(t, t.nivel_base)                       // vuelve a su nivel original
+    sino si uso_completo:
+        encolar(t, min(t.nivel_actual+1, N_NIVELES-1)) // CPU-bound: baja
+    sino:
+        encolar(t, t.nivel_actual)                     // I/O-bound: se mantiene
+```
+
+El *boost* por envejecimiento es temporal: tras ejecutar, la tarea vuelve a su nivel base. Así se garantiza progreso sin invertir prioridades de forma permanente.
+
 ### Aplicación en sistemas de producción
 
+- Fijar `UMBRAL_ESPERA` a partir del máximo retraso tolerable de las tareas de mantenimiento (por ejemplo, que el *vacuum* o la rotación de logs corra al menos cada N minutos).
+- Ejemplos reales: el *priority boost* de Windows para hilos que llevan ~4 s listos sin ejecutarse, y la regla de *priority boost* periódico de MLFQ.
+
 ### Referencias
+
+- Arpaci-Dusseau, *OSTEP*, capítulo "Multi-Level Feedback Queue".
+- Silberschatz, *Operating System Concepts*, sección de colas multinivel con retroalimentación.

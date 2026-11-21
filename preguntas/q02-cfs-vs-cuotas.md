@@ -2,7 +2,7 @@
 
 > El planificador Completely Fair Scheduler (CFS) busca garantizar tiempo proporcional a todos los hilos. Analice conceptualmente cuándo esta equidad resulta contraproducente en plataformas multi-tenant de nube donde ciertos clientes pagan por SLAs garantizados.
 
-**Responsable:** _(nombre)_ · **Estado:** ☑ Prompt ☑ Respuesta IA ☐ Crítica individual ☐ Solución unificada
+**Responsable:** Jerónimo Vélez Acosta · **Estado:** ☑ Prompt ☑ Respuesta IA ☑ Crítica individual ☑ Solución unificada
 
 ---
 
@@ -59,51 +59,33 @@ CFS/EEVDF reparten tiempo **entre entidades planificables** según su peso. Eso 
 
 ## 3. Análisis crítico individual
 
-<!-- Borrar las secciones de integrantes que no existan. Cada quien escribe la suya. -->
+### Jerónimo Vélez Acosta
 
-### Integrante A — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante B — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante C — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante D — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante E — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
+- **Aciertos y cumplimiento:** Identifica con claridad la transición de CFS a EEVDF en Linux 6.6 y articula correctamente la diferencia entre la equidad a nivel de entidad planificable (`task_struct`) frente a la equidad organizacional o de cliente mediante el controlador `cpu` de **cgroups v2** (`cpu.weight` y `cpu.max`). La correlación con las clases de QoS de Kubernetes es exacta.
+- **Vacíos y puntos críticos:**
+  - *Visión incompleta del "vecino ruidoso" en hardware:* El modelo asume que la contención es exclusivamente de tiempo de CPU. Sin embargo, en servidores multi-tenant x86 con SMT habilitado, dos clientes pueden cumplir estrictamente sus cuotas de `cpu.max` y aun así degradar mutuamente sus SLAs de latencia p99 debido a la contención en recursos compartidos del núcleo físico (unidades de ejecución, puertos de despacho, caché L1/L2 en hilos hermanos SMT y ancho de banda de memoria DRAM).
+  - *Matiz sobre `SCHED_DEADLINE`:* Menciona `SCHED_DEADLINE` como mecanismo para SLAs en la nube, pero omite que esta política opera a nivel de hilo individual (`sched_setattr`) y no cuenta con un controlador jerárquico nativo equivalente a los grupos de ancho de banda de cgroups para contenedores arbitrarios, lo que limita su adopción directa en orquestadores multi-tenant estándar.
 
 ## 4. Solución unificada del equipo
 
-<!-- Postura técnica definitiva, justificada con teoría. Añadir pseudocódigo, diagrama (en /diagramas) o syscalls cuando aplique. -->
-
 ### Postura del equipo
+
+La equidad de CFS/EEVDF es equidad entre entidades planificables, no entre clientes, y garantiza proporciones, no cantidades. Para vender SLAs en una nube multi-tenant hace falta agrupar por cliente (cgroups v2) y, para latencia de cola, aislar también los recursos físicos del núcleo, no solo el tiempo de CPU.
 
 ### Justificación
 
+- Sin agrupación, un cliente con 100 hilos se lleva casi todo el CPU frente a uno con 4. `cpu.weight` corrige esto repartiendo entre grupos.
+- Cumplir `cpu.max` no basta para un SLA de p99: con SMT, dos clientes en hilos hermanos compiten por las unidades de ejecución, la L1/L2 del mismo núcleo físico y el ancho de banda de DRAM, aunque cada uno respete su cuota. La IA asumió que la contención era solo de tiempo de CPU.
+- `SCHED_DEADLINE` da garantías temporales, pero opera por hilo (`sched_setattr`) y no tiene un controlador jerárquico equivalente al de cgroups, así que no sirve directamente para contenedores arbitrarios en un orquestador.
+
 ### Aplicación en sistemas de producción
 
+1. Un cgroup por cliente: `cpu.weight` proporcional al plan contratado y `cpu.max` para el techo.
+2. Clientes con SLA de latencia: núcleos físicos completos (`cpuset`) sin compartir hermanos SMT con otros clientes (en Kubernetes, CPU Manager `static` con la opción `full-pcpus-only`).
+3. Contención de caché y memoria: Intel RDT (CAT/MBA) o equivalente para repartir L3 y ancho de banda.
+4. Kubernetes: `requests` → `cpu.weight`, `limits` → `cpu.max`, con clases de QoS Guaranteed para los clientes premium.
+
 ### Referencias
+
+- Documentación del kernel: `admin-guide/cgroup-v2` (controladores `cpu` y `cpuset`), `scheduler/sched-deadline`.
+- Documentación de Kubernetes: CPU Manager Policies y Resource Management for Pods.

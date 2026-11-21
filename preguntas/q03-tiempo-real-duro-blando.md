@@ -2,7 +2,7 @@
 
 > Contraste la filosofía determinista de los algoritmos de tiempo real (donde llegar tarde equivale a un fallo catastrófico) frente a los planificadores de propósito general. ¿Por qué agregar más potencia de CPU no convierte automáticamente un sistema estándar en uno de tiempo real?
 
-**Responsable:** _(nombre)_ · **Estado:** ☑ Prompt ☑ Respuesta IA ☐ Crítica individual ☐ Solución unificada
+**Responsable:** Jerónimo Vélez Acosta · **Estado:** ☑ Prompt ☑ Respuesta IA ☑ Crítica individual ☑ Solución unificada
 
 ---
 
@@ -62,51 +62,32 @@ Un CPU más rápido con latencia de peor caso no acotada sigue sin poder garanti
 
 ## 3. Análisis crítico individual
 
-<!-- Borrar las secciones de integrantes que no existan. Cada quien escribe la suya. -->
+### Jerónimo Vélez Acosta
 
-### Integrante A — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante B — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante C — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante D — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante E — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
+- **Aciertos y cumplimiento:** Contrasta eficazmente la optimización del caso promedio frente a la acotación del peor caso (WCET), incluye las cotas teóricas de planificabilidad de Liu & Layland para Rate Monotonic (≈ 69.3 %) y EDF (100 %), y ubica correctamente la fusión de **PREEMPT_RT** en Linux 6.12.
+- **Vacíos y puntos críticos:**
+  - *Simplificación de la cota del 100 % en EDF:* El modelo afirma que con EDF un conjunto de tareas periódicas es planificable si U ≤ 100 %, omitiendo las hipótesis estrictas bajo las cuales esto es cierto: tareas independientes (sin bloqueo por recursos compartidos), deadlines iguales a los períodos (Dᵢ = Tᵢ), sistema monoprocesador y overhead de cambio de contexto nulo. En multiprocesador (Global EDF), la utilización puede caer drásticamente debido a la anomalía de Dhall.
+  - *Imprecisión en el ejemplo de producción:* Cita a **Zephyr** junto a VxWorks y QNX como ejemplos de RTOS para "tiempo real duro certificable (aviónica, automoción)". Aunque Zephyr es un RTOS robusto y cuenta con esfuerzos de certificación (como IEC 61508), en aviónica crítica (DO-178C DAL-A) o automoción (ISO 26262 ASIL-D) los estándares industriales consolidados son VxWorks 653, Integrity-178 o QNX Neutrino, más que Zephyr.
 
 ## 4. Solución unificada del equipo
 
-<!-- Postura técnica definitiva, justificada con teoría. Añadir pseudocódigo, diagrama (en /diagramas) o syscalls cuando aplique. -->
-
 ### Postura del equipo
+
+El tiempo real no es velocidad sino predictibilidad del peor caso. Más CPU reduce el promedio pero no acota la latencia máxima, así que un sistema de propósito general no se vuelve de tiempo real por ser más rápido. Las cotas de planificabilidad que da la IA son correctas, pero solo bajo hipótesis que hay que declarar.
 
 ### Justificación
 
+- La cota U ≤ 100 % de EDF vale solo para tareas independientes (sin bloqueo por recursos compartidos), con deadline igual al periodo (D = T), en un monoprocesador y con overhead de cambio de contexto despreciable. La de Rate Monotonic (n(2^(1/n) − 1), ≈ 69.3 %) tiene las mismas hipótesis.
+- En multiprocesador con EDF global, la utilización planificable puede caer drásticamente (efecto Dhall), por lo que en la práctica se prefiere la planificación particionada.
+- Las fuentes de latencia no acotada (secciones no preemptibles, interrupciones, inversión de prioridades, fallos de caché/TLB, SMIs, paginación) no dependen de la frecuencia del procesador.
+
 ### Aplicación en sistemas de producción
 
+- **Tiempo real blando o firme** (robótica, control industrial, audio): Linux con PREEMPT_RT (en la rama principal desde 6.12), `SCHED_FIFO` o `SCHED_DEADLINE`, `mlockall()` e `isolcpus`/`nohz_full` o particiones de cpuset.
+- **Tiempo real duro certificado**: en aviónica (DO-178C DAL A) y automoción (ISO 26262 ASIL D) se usan RTOS con historial de certificación como VxWorks 653, INTEGRITY-178 o QNX. Zephyr tiene esfuerzos de certificación funcional, pero no es la referencia en esos dominios.
+- Dimensionar siempre por el WCET medido y no por el caso promedio.
+
 ### Referencias
+
+- Liu y Layland (1973), *Scheduling Algorithms for Multiprogramming in a Hard-Real-Time Environment*.
+- Documentación del kernel: `scheduler/sched-deadline`; documentación de PREEMPT_RT.

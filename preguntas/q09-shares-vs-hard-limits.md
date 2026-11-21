@@ -2,7 +2,7 @@
 
 > Compare las dos filosofías de control de recursos en plataformas de microservicios: repartir la CPU de forma elástica cuando sobra capacidad (shares) versus imponer un techo infranqueable (hard quota). ¿Cuál es la estrategia óptima para evitar vecinos ruidosos ('noisy neighbors') sin desperdiciar infraestructura?
 
-**Responsable:** _(nombre)_ · **Estado:** ☑ Prompt ☑ Respuesta IA ☐ Crítica individual ☐ Solución unificada
+**Responsable:** Jerónimo Vélez Acosta · **Estado:** ☑ Prompt ☑ Respuesta IA ☑ Crítica individual ☑ Solución unificada
 
 ---
 
@@ -61,51 +61,37 @@ Con hard limits, una aplicación multihilo puede gastar su cuota de 100 ms en lo
 
 ## 3. Análisis crítico individual
 
-<!-- Borrar las secciones de integrantes que no existan. Cada quien escribe la suya. -->
+### Jerónimo Vélez Acosta
 
-### Integrante A — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante B — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante C — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante D — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante E — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
+- **Aciertos y cumplimiento:** Distingue con precisión las políticas *work-conserving* (`cpu.weight`) frente a *non-work-conserving* (`cpu.max`) en cgroups v2, explica el fenómeno de *CFS/EEVDF throttling* en aplicaciones multihilo con cuotas estrictas y referencia correctamente las métricas de observabilidad (`cpu.stat`, `PSI`) y el parámetro `cpu.max.burst` de Linux 5.14.
+- **Vacíos y puntos críticos:**
+  - *Riesgo financiero y operativo al omitir `limits.cpu`:* La respuesta respalda la práctica de eliminar `limits.cpu` en servicios críticos para evitar *throttling*. Aunque técnicamente reduce la latencia p99, omite el riesgo arquitectónico de dejar pods en clase **Burstable** sin techo: ante un bug de bucle infinito o un pico anómalo de tráfico, un único contenedor puede consumir toda la capacidad ociosa del nodo, afectando a otros workloads Burstable del mismo host y disparando costos inesperados en entornos con autoescalado basado en utilización de nodo.
+  - *Granularidad del período de cuota (`cpu.max`):* No menciona que reducir el período por defecto de `100ms` (`100000 µs`) a valores como `10ms` o `20ms` (soportado en Kubernetes mediante *Custom CPU Manager / CFS quota period*) permite mantener límites duros reduciendo drásticamente la duración de las pausas por *throttling*, a costa de un ligero incremento en el overhead de contabilidad del kernel.
 
 ## 4. Solución unificada del equipo
 
-<!-- Postura técnica definitiva, justificada con teoría. Añadir pseudocódigo, diagrama (en /diagramas) o syscalls cuando aplique. -->
-
 ### Postura del equipo
+
+No hay una sola política óptima: la estrategia correcta combina `requests` bien medidos para todos los pods, núcleos exclusivos para los servicios críticos de latencia y techos para lo demás. Quitar `limits.cpu` a todo, como sugiere la IA, reduce el *throttling* pero deja el nodo expuesto a un contenedor desbocado.
 
 ### Justificación
 
+- Un pod Burstable sin techo puede consumir toda la capacidad libre del nodo ante un bucle infinito o un pico anómalo. Eso afecta a los demás pods Burstable del host y, en clústeres con autoescalado por utilización del nodo, dispara costos.
+- El *throttling* se puede reducir sin quitar el techo:
+  - acortando el periodo de cuota (`cpu.max` usa 100 ms por defecto; en Kubernetes se ajusta con `cpuCFSQuotaPeriod` del kubelet), a cambio de algo más de overhead de contabilidad;
+  - permitiendo ráfagas acumuladas con `cpu.max.burst` (Linux ≥ 5.14).
+
 ### Aplicación en sistemas de producción
 
+| Tipo de servicio | Configuración |
+|---|---|
+| Crítico, sensible a latencia | QoS Guaranteed con CPUs enteras y CPU Manager `static` (núcleos exclusivos, sin cuota que cause *throttling*). |
+| Normal | `requests` medidos y `limits` holgados (por ejemplo, 2–3× el request) con `cpu.max.burst`. |
+| Batch o de bajo valor | `limits` estrictos y `cpu.weight` bajo, o `cpu.idle`. |
+
+Además: separar por *node pools* las cargas que compiten por caché y memoria, y monitorear `cpu.stat` (`nr_throttled`, `throttled_usec`) y PSI (`cpu.pressure`).
+
 ### Referencias
+
+- Documentación del kernel: `admin-guide/cgroup-v2` (`cpu.max`, `cpu.max.burst`, `cpu.weight`, PSI).
+- Documentación de Kubernetes: Resource Management for Pods, CPU Manager Policies y la configuración del kubelet.

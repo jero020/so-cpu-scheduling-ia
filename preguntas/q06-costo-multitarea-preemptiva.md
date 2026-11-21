@@ -2,7 +2,7 @@
 
 > Evalúe el impacto acumulado del cambio de contexto y la invalidación de memorias caché (L1/L2/L3) frente al paradigma de concurrencia cooperativa orientada a eventos. ¿Por qué arquitecturas de alto rendimiento (ej. NGINX, Node.js) prefieren modelos mono-hilo no bloqueantes frente a miles de hilos preemptivos?
 
-**Responsable:** _(nombre)_ · **Estado:** ☑ Prompt ☑ Respuesta IA ☐ Crítica individual ☐ Solución unificada
+**Responsable:** Jerónimo Vélez Acosta · **Estado:** ☑ Prompt ☑ Respuesta IA ☑ Crítica individual ☑ Solución unificada
 
 ---
 
@@ -57,51 +57,34 @@ Es decir, ninguno es “mono-hilo puro”: usan un hilo por núcleo para el trab
 
 ## 3. Análisis crítico individual
 
-<!-- Borrar las secciones de integrantes que no existan. Cada quien escribe la suya. -->
+### Jerónimo Vélez Acosta
 
-### Integrante A — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante B — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante C — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante D — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante E — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
+- **Aciertos y cumplimiento:** Desglosa con rigor los costos directos (registros, cambio de `CR3`, impacto de KPTI y mitigación vía PCID) e indirectos (invalidación de L1/L2 y TLB, citando el estudio empírico de Li et al., 2007). Además, desmitifica acertadamente la idea de que NGINX y Node.js son estrictamente mono-hilo al explicar sus *worker processes* y los pools de hilos de `libuv` / `aio`.
+- **Vacíos y puntos críticos:**
+  - *Omisión de `io_uring` en la evolución moderna de Linux:* El modelo describe `epoll` y los pools de hilos en espacio de usuario (`libuv`) como el estado del arte para evitar bloqueos de disco. Sin embargo, en kernels Linux modernos (≥ 5.1), **`io_uring`** transforma este paradigma al permitir I/O verdaderamente asíncrono tanto para red como para almacenamiento mediante colas compartidas en memoria (*submission/completion rings*), reduciendo drásticamente las llamadas al sistema (*syscalls*) y el overhead de cambios de modo usuario-kernel.
+  - *Costos ocultos del modelo orientado a eventos:* En los trade-offs menciona el bloqueo por tareas CPU-bound y la complejidad de callbacks, pero omite la fragmentación de memoria y la propagación de contexto (*stack unwinding* limitado en depuración), así como el hecho de que las arquitecturas modernas híbridas (*green threads* / corrutinas M:N en Go o Rust/Tokio) combinan la ergonomía secuencial con la eficiencia del *event loop* sobre múltiples núcleos.
 
 ## 4. Solución unificada del equipo
 
-<!-- Postura técnica definitiva, justificada con teoría. Añadir pseudocódigo, diagrama (en /diagramas) o syscalls cuando aplique. -->
-
 ### Postura del equipo
+
+El costo de la multitarea preemptiva con miles de hilos lo dominan los efectos indirectos (cachés, TLB) más que el cambio de contexto en sí, y eso justifica los modelos orientados a eventos para cargas de E/S intensiva. Pero el estado del arte ya no es solo `epoll` + pools de hilos: hoy incluye E/S asíncrona real con `io_uring` y modelos híbridos M:N.
 
 ### Justificación
 
+- `epoll` notifica disponibilidad y obliga a usar pools de hilos para el disco (como libuv o `aio threads` de NGINX). `io_uring` (Linux ≥ 5.1) ofrece E/S asíncrona para red y almacenamiento con colas compartidas de envío y completado, reduciendo syscalls y transiciones usuario-kernel.
+- El modelo de eventos también tiene costos: bloqueo total ante tareas CPU-bound, código asíncrono más difícil de depurar (trazas de pila poco útiles) y propagación de contexto manual.
+- Los *runtimes* M:N (goroutines en Go, Tokio en Rust) combinan código secuencial con la eficiencia de un event loop repartido en varios núcleos.
+
 ### Aplicación en sistemas de producción
 
+| Carga | Modelo recomendado |
+|---|---|
+| Proxy o servidor web con muchas conexiones | Un worker por núcleo con event loop (NGINX); `io_uring` donde el runtime lo soporte. |
+| Servicio con lógica de negocio y E/S mezcladas | Runtime M:N (Go, Tokio). |
+| Cómputo intensivo | Hilos del sistema (uno por núcleo) o `worker_threads`, fuera del event loop. |
+
 ### Referencias
+
+- Li, Ding y Shen (2007), *Quantifying the Cost of Context Switch*.
+- Axboe, *Efficient IO with io_uring*; documentación de libuv y NGINX.

@@ -2,7 +2,7 @@
 
 > Argumente por qué es teóricamente imposible maximizar simultáneamente el rendimiento global (throughput), la latencia de respuesta y la justicia distributiva. ¿Cómo debe un arquitecto de sistemas parametrizar el planificador según la naturaleza del negocio (batch processing vs. streaming interactivo)?
 
-**Responsable:** _(nombre)_ · **Estado:** ☑ Prompt ☑ Respuesta IA ☐ Crítica individual ☐ Solución unificada
+**Responsable:** Jerónimo Vélez Acosta · **Estado:** ☑ Prompt ☑ Respuesta IA ☑ Crítica individual ☑ Solución unificada
 
 ---
 
@@ -56,51 +56,35 @@ Desde Linux 6.6 el planificador por defecto es **EEVDF**, que reemplazó a CFS. 
 
 ## 3. Análisis crítico individual
 
-<!-- Borrar las secciones de integrantes que no existan. Cada quien escribe la suya. -->
+### Jerónimo Vélez Acosta
 
-### Integrante A — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante B — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante C — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante D — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante E — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
+- **Aciertos y cumplimiento:** La respuesta cumple con las restricciones de extensión, supuestos de hardware y parametrización en Linux, introduciendo acertadamente **EEVDF** (Linux ≥ 6.6) y la interfaz `sched_setattr(2)` de Linux 6.12 para slices dinámicos. Asimismo, fundamenta matemáticamente la imposibilidad mediante la frontera de Pareto y la Ley de Little (L = λW).
+- **Vacíos y puntos críticos:**
+  - *Imprecisión en la parametría de EEVDF:* El modelo menciona ajustar `base_slice_ns` en `/sys/kernel/debug/sched/`. Aunque funcional en kernels compilados con `CONFIG_SCHED_DEBUG`, en entornos de producción modernos (donde debugfs suele estar restringido o deshabilitado por seguridad) este ajuste se gestiona vía `sysctl` (`kernel.sched_base_slice_ns`) o mediante la interfaz por tarea `sched_attr`.
+  - *Omitió el costo de coherencia de caché:* Al analizar el costo indirecto del cambio de contexto, se limita a las cachés privadas L1/L2 y el TLB, pasando por alto el tráfico de coherencia (protocolos MESI/MOESI) e invalidación de líneas en la caché L3 compartida cuando el planificador balancea carga entre núcleos.
+  - *Riesgo en la recomendación de `SCHED_FIFO`:* Sugerir `SCHED_FIFO` para streaming interactivo sin advertir explícitamente sobre el mecanismo de protección `kernel.sched_rt_runtime_us` (950 ms por defecto) es riesgoso; un hilo mal comportado bajo `SCHED_FIFO` puede causar inanición total al resto del espacio de usuario.
 
 ## 4. Solución unificada del equipo
 
-<!-- Postura técnica definitiva, justificada con teoría. Añadir pseudocódigo, diagrama (en /diagramas) o syscalls cuando aplique. -->
-
 ### Postura del equipo
+
+No existe un planificador que maximice a la vez throughput, latencia y equidad: son objetivos en tensión y el arquitecto debe elegir un punto de la frontera de Pareto según el negocio. La respuesta de la IA es correcta en lo conceptual, pero hay que completarla en dos puntos: el costo de coherencia de caché entre núcleos y los riesgos de usar políticas de tiempo real para cargas interactivas.
 
 ### Justificación
 
+- El costo de un *slice* corto no se limita a recalentar L1/L2 y TLB. Cuando el balanceador migra tareas entre núcleos, también aparece tráfico de coherencia (MESI/MOESI) e invalidación de líneas en la L3 compartida, así que la penalización real de favorecer la latencia es mayor que la que estima la IA.
+- Por la ley de Little (L = λW), cerca de la saturación cualquier mejora de latencia para una clase de tareas aumenta la espera de otra.
+- `SCHED_FIFO` acota la latencia, pero un hilo mal comportado puede dejar sin CPU al resto del sistema. La única protección por defecto es el *RT throttling* (`kernel.sched_rt_runtime_us = 950000` sobre `sched_rt_period_us = 1000000`), que reserva un 5 % del CPU a las tareas normales.
+
 ### Aplicación en sistemas de producción
 
+| Perfil | Configuración recomendada (Linux ≥ 6.6, EEVDF) |
+|---|---|
+| Batch (ETL, render, entrenamiento) | `SCHED_BATCH`, `nice` positivo y, si se requiere, un *slice* base mayor en `/sys/kernel/debug/sched/base_slice_ns` (solo vía debugfs). |
+| Interactivo / streaming | `SCHED_OTHER` con `nice` negativo; desde Linux 6.12, *slice* más corto por tarea con `sched_attr.sched_runtime` en `sched_setattr(2)`. `SCHED_FIFO` solo para hilos acotados (audio) y con el *RT throttling* activo. |
+| Mixto | Separar cargas en cgroups v2 con `cpu.weight`, para que la equidad sea entre servicios y no entre hilos. |
+
 ### Referencias
+
+- Documentación del kernel: `scheduler/sched-design-CFS`, `scheduler/sched-eevdf`, `scheduler/sched-rt-group`.
+- Silberschatz, *Operating System Concepts*, capítulo de planificación de CPU.

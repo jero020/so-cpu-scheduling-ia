@@ -2,7 +2,7 @@
 
 > A partir del dilema conceptual de la inversión de prioridades, evalúe por qué los mecanismos de herencia y techo de prioridad son soluciones reactivas a fallos de diseño en la sincronización. ¿Cómo impactan estos protocolos en la predictibilidad de sistemas aeroespaciales y vehiculares autónomos?
 
-**Responsable:** _(nombre)_ · **Estado:** ☑ Prompt ☑ Respuesta IA ☐ Crítica individual ☐ Solución unificada
+**Responsable:** Jerónimo Vélez Acosta · **Estado:** ☑ Prompt ☑ Respuesta IA ☑ Crítica individual ☑ Solución unificada
 
 ---
 
@@ -62,51 +62,33 @@ La predictibilidad exige que el peor tiempo de bloqueo sea calculable. PCP lo ac
 
 ## 3. Análisis crítico individual
 
-<!-- Borrar las secciones de integrantes que no existan. Cada quien escribe la suya. -->
+### Jerónimo Vélez Acosta
 
-### Integrante A — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante B — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante C — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante D — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante E — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
+- **Aciertos y cumplimiento:** Diferencia con rigor técnico la Herencia de Prioridad (PIP) del Protocolo de Techo de Prioridad Inmediato (ICPP/PCP), ilustra ambos con ejemplos numéricos claros, narra con exactitud el incidente del *Mars Pathfinder* (1997) en VxWorks y acierta al señalar que ambos son parches reactivos frente a arquitecturas lock-free o particionadas.
+- **Vacíos y puntos críticos:**
+  - *Omisión en el bloque de sincronización de múltiples recursos:* Aunque menciona que PIP no evita *deadlocks* y sufre bloqueos encadenados, no detalla el mecanismo formal por el cual PCP los previene: al elevar inmediatamente la prioridad de la tarea al techo del recurso al adquirirlo, ninguna otra tarea que comparta ese recurso (o cualquiera con techo menor o igual) puede ejecutar ni adquirir locks anidados, garantizando como máximo un único bloqueo por sección crítica.
+  - *Riesgo en arquitecturas multinúcleo (SMP):* Si bien en los supuestos aclara que asume un monoprocesador, en sistemas aeroespaciales y vehiculares modernos (SoCs multinúcleo) el techo de prioridad clásico falla si dos tareas en núcleos distintos compiten por el mismo spinlock/mutex. El modelo solo nombra de pasada MPCP/MSRP sin explicar que en SMP la espera deja de ser puramente por preempción y se convierte en espera activa o suspensión inter-núcleo.
 
 ## 4. Solución unificada del equipo
 
-<!-- Postura técnica definitiva, justificada con teoría. Añadir pseudocódigo, diagrama (en /diagramas) o syscalls cuando aplique. -->
-
 ### Postura del equipo
+
+La herencia y el techo de prioridad mitigan un problema causado por compartir recursos entre tareas de distinta criticidad; son reactivos. Para sistemas críticos preferimos el techo de prioridad (ICPP) en monoprocesador, por su predictibilidad, y en multinúcleo protocolos diseñados para SMP o, mejor, diseños que eviten compartir recursos entre núcleos.
 
 ### Justificación
 
+- **Por qué PCP/ICPP previene deadlocks y bloqueos encadenados:** al adquirir un recurso, la tarea sube de inmediato al techo de ese recurso. Ninguna otra tarea que use ese recurso, ni ninguna con prioridad menor o igual al techo, puede ejecutarse y tomar otro lock en ese intervalo. Por eso cada tarea se bloquea como máximo una vez por una sección crítica de menor prioridad, y no se forman ciclos de espera.
+- **PIP** es transparente, pero el peor caso se vuelve difícil de calcular por los bloqueos encadenados.
+- **En SMP** el problema cambia: dos tareas en núcleos distintos compiten por el mismo lock sin preemptarse entre sí, y la espera pasa a ser activa (spin) o una suspensión entre núcleos. Los protocolos MPCP y MSRP extienden el techo a ese escenario, pero con cotas más pesimistas.
+
 ### Aplicación en sistemas de producción
 
+- RTOS automotriz (OSEK/AUTOSAR): ICPP es el estándar para recursos compartidos.
+- Linux: `pthread_mutexattr_setprotocol` con `PTHREAD_PRIO_PROTECT` (techo) o `PTHREAD_PRIO_INHERIT` (herencia); PREEMPT_RT usa `rt_mutex` con herencia.
+- Diseño: secciones críticas cortas, recursos particionados por núcleo y comunicación por colas entre niveles de criticidad.
+- Caso de referencia: Mars Pathfinder (1997), corregido activando la herencia de prioridad en el mutex de VxWorks.
+
 ### Referencias
+
+- Sha, Rajkumar y Lehoczky (1990), *Priority Inheritance Protocols: An Approach to Real-Time Synchronization*.
+- Páginas de manual: `pthread_mutexattr_setprotocol(3)`.

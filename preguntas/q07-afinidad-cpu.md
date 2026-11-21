@@ -2,7 +2,7 @@
 
 > Discuta el compromiso entre fijar tareas críticas a núcleos dedicados (CPU pinning) para maximizar la localidad de caché vs. permitir que el planificador migre libremente los procesos para balancear la temperatura y la carga de los sockets.
 
-**Responsable:** _(nombre)_ · **Estado:** ☑ Prompt ☑ Respuesta IA ☐ Crítica individual ☐ Solución unificada
+**Responsable:** Jerónimo Vélez Acosta · **Estado:** ☑ Prompt ☑ Respuesta IA ☑ Crítica individual ☑ Solución unificada
 
 ---
 
@@ -57,51 +57,35 @@ Restricciones:
 
 ## 3. Análisis crítico individual
 
-<!-- Borrar las secciones de integrantes que no existan. Cada quien escribe la suya. -->
+### Jerónimo Vélez Acosta
 
-### Integrante A — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante B — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante C — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante D — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante E — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
+- **Aciertos y cumplimiento:** Cubre de forma exhaustiva la pila técnica de aislamiento en Linux: desde syscalls (`sched_setaffinity`) y comandos (`taskset`, `numactl`) hasta parámetros de arranque (`isolcpus`, `nohz_full`, `rcu_nocbs`) y enrutamiento de interrupciones (`smp_affinity`). La advertencia sobre la desalineación entre afinidad de CPU y memoria NUMA es muy acertada.
+- **Vacíos y puntos críticos:**
+  - *Obsolescencia relativa de `isolcpus`:* El modelo recomienda `isolcpus` como parámetro estándar de arranque, sin advertir que en la documentación oficial del kernel de Linux `isolcpus` está marcado como *deprecated* en favor de particiones exclusivas mediante **cgroups v2 (`cpuset.cpus.partition=isolated`)**. Usar `isolcpus` estáticamente impide reconfigurar el dominio de planificabilidad en caliente sin reiniciar el nodo.
+  - *Interferencia de hilos hermanos SMT (Hyper-Threading):* Aunque en los supuestos menciona que SMT está habilitado y los hilos comparten L1/L2, no extrae la consecuencia crítica en los trade-offs: hacer *pinning* de un proceso crítico al núcleo lógico 0 sin aislar o apagar su hermano físico (por ejemplo, núcleo lógico 32) invalida el aislamiento determinista, pues el hilo hermano seguirá compitiendo por las unidades de ejecución y contaminando la caché L1.
 
 ## 4. Solución unificada del equipo
 
-<!-- Postura técnica definitiva, justificada con teoría. Añadir pseudocódigo, diagrama (en /diagramas) o syscalls cuando aplique. -->
-
 ### Postura del equipo
+
+El *pinning* es la herramienta correcta para cargas que necesitan latencia predecible, pero solo funciona si el aislamiento es completo: CPU, memoria NUMA, interrupciones y el hilo hermano SMT. Para cargas generales, la migración libre del planificador es mejor. Para aislar núcleos recomendamos particiones de cpuset en cgroups v2 en lugar de `isolcpus`.
 
 ### Justificación
 
+- `isolcpus` está marcado como obsoleto en la documentación de parámetros del kernel en favor de cpusets. Además es estático: cambiar el conjunto de núcleos aislados exige reiniciar. Las particiones de cgroups v2 (`cpuset.cpus.partition = isolated`) se reconfiguran en caliente.
+- Fijar un proceso a un núcleo lógico sin controlar su hermano SMT no da aislamiento determinista: el hermano sigue compitiendo por las unidades de ejecución y la L1/L2. Hay que reservar el núcleo físico completo o desactivar SMT en esos núcleos.
+- Fijar CPU sin fijar memoria (`numactl --membind`) puede empeorar la latencia por accesos al nodo NUMA remoto.
+
 ### Aplicación en sistemas de producción
 
+1. Partición aislada de cpuset con núcleos físicos completos.
+2. `nohz_full` y `rcu_nocbs` en esos núcleos; IRQs fuera de ellos vía `/proc/irq/*/smp_affinity`.
+3. Proceso fijado con `sched_setaffinity` y memoria en el mismo nodo NUMA.
+4. Monitorear temperatura y frecuencia: un núcleo fijo con carga sostenida puede perder turbo.
+
+Ejemplos: DPDK y funciones de red virtualizadas, trading de baja latencia, VMs con vCPUs fijadas.
+
 ### Referencias
+
+- Documentación del kernel: `admin-guide/kernel-parameters` (`isolcpus`, `nohz_full`), `admin-guide/cgroup-v2` (cpuset partitions).
+- Páginas de manual: `sched_setaffinity(2)`, `numactl(8)`.

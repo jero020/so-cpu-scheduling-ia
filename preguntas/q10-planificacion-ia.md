@@ -2,7 +2,7 @@
 
 > Debata si el futuro de la planificación de procesos radica en algoritmos heurísticos estáticos o en agentes adaptativos basados en aprendizaje automático. ¿Qué riesgos de estabilidad e interpretabilidad introduce un planificador no determinista en el núcleo de un sistema operativo?
 
-**Responsable:** _(nombre)_ · **Estado:** ☑ Prompt ☑ Respuesta IA ☐ Crítica individual ☐ Solución unificada
+**Responsable:** Jerónimo Vélez Acosta · **Estado:** ☑ Prompt ☑ Respuesta IA ☑ Crítica individual ☑ Solución unificada
 
 ---
 
@@ -58,51 +58,34 @@ Las heurísticas estáticas se ajustan para cargas “típicas”. Un agente que
 
 ## 3. Análisis crítico individual
 
-<!-- Borrar las secciones de integrantes que no existan. Cada quien escribe la suya. -->
+### Jerónimo Vélez Acosta
 
-### Integrante A — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante B — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante C — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante D — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante E — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
+- **Aciertos y cumplimiento:** Traza una frontera clara entre los planificadores deterministas en producción, el punto de inflexión que representa **`sched_ext`** (Linux 6.12) mediante eBPF con mecanismo automático de *fallback*, y los modelos de ML aplicados fuera del camino crítico (clústeres como Borg o sistemas como Decima). Enumera de forma rigurosa los riesgos de seguridad, verificabilidad formal y latencia de inferencia.
+- **Vacíos y puntos críticos:**
+  - *Restricciones técnicas de eBPF dentro de `sched_ext`:* Aunque destaca el mecanismo de seguridad de `sched_ext` cuando un planificador eBPF falla o expira un watchdog, omite explicar que el verificador del kernel de Linux (eBPF verifier) impone restricciones estrictas de ejecución (límites de complejidad de instrucciones, ausencia de aritmética de punto flotante nativa en espacio de kernel y prohibición de bucles no acotados). Esto hace arquitectónicamente inviable ejecutar redes neuronales o inferencia compleja directamente dentro del gancho `sched_ext`; la inferencia debe residir en espacio de usuario comunicándose mediante mapas eBPF (*BPF maps*) de forma asíncrona.
+  - *Sesgo de telemetría (Efecto Observador):* No aborda que la recolección intensiva de contadores de hardware (PMU) necesaria para alimentar modelos adaptativos introduce ruido de medición y presión adicional sobre los registros del procesador, pudiendo alterar el propio comportamiento temporal de las cargas sensibles a la latencia que se intenta optimizar.
 
 ## 4. Solución unificada del equipo
 
-<!-- Postura técnica definitiva, justificada con teoría. Añadir pseudocódigo, diagrama (en /diagramas) o syscalls cuando aplique. -->
-
 ### Postura del equipo
+
+El futuro realista es híbrido: un núcleo de planificación determinista con garantías y *fallback*, y el aprendizaje automático fuera del camino crítico ajustando políticas y parámetros. Ejecutar inferencia dentro del planificador del kernel no es viable hoy, ni siquiera con `sched_ext`.
 
 ### Justificación
 
+- `sched_ext` (Linux 6.12) permite planificadores en eBPF con *fallback* automático, pero el verificador de eBPF impone límites de complejidad, prohíbe bucles no acotados y no permite aritmética de punto flotante en el kernel. Una red neuronal no cabe en el gancho del planificador.
+- La arquitectura viable es que la inferencia corra en espacio de usuario y publique decisiones o parámetros en *BPF maps*, que el planificador eBPF consulta de forma asíncrona.
+- La telemetría tiene costo: muestrear contadores de la PMU de forma intensiva añade overhead y ruido, y puede alterar el comportamiento temporal de las cargas que se quieren optimizar.
+- Persisten los riesgos que señala la IA: inestabilidad ante entradas fuera de distribución, baja interpretabilidad, falta de garantías formales y posibilidad de manipulación por procesos adversarios.
+
 ### Aplicación en sistemas de producción
 
+1. Planificador base determinista (EEVDF) o un planificador `sched_ext` simple y verificable.
+2. Agente de ML en espacio de usuario que ajusta pesos, *slices* o colocación mediante *BPF maps*, con límites acotados.
+3. *Fallback* y *watchdog* (ya incluidos en `sched_ext`) y despliegue gradual con métricas de latencia p99 y equidad.
+4. A nivel de clúster, el ML sí es práctico hoy (colocación, autoescalado), porque opera en escalas de segundos y no de microsegundos.
+
 ### Referencias
+
+- Documentación del kernel: `scheduler/sched-ext`; documentación del verificador de BPF.
+- Mao et al. (2019), *Learning Scheduling Algorithms for Data Processing Clusters* (Decima).

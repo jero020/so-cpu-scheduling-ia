@@ -2,7 +2,7 @@
 
 > Con la convivencia de núcleos orientados a eficiencia energética y núcleos de alto rendimiento, ¿cómo cambia el paradigma conceptual de planificación de CPU? Analice el impacto estratégico en dispositivos móviles y centros de datos 'verdes'.
 
-**Responsable:** _(nombre)_ · **Estado:** ☑ Prompt ☑ Respuesta IA ☐ Crítica individual ☐ Solución unificada
+**Responsable:** Jerónimo Vélez Acosta · **Estado:** ☑ Prompt ☑ Respuesta IA ☑ Crítica individual ☑ Solución unificada
 
 ---
 
@@ -54,51 +54,32 @@ En un SMP clásico todos los núcleos son iguales y el planificador solo decide 
 
 ## 3. Análisis crítico individual
 
-<!-- Borrar las secciones de integrantes que no existan. Cada quien escribe la suya. -->
+### Jerónimo Vélez Acosta
 
-### Integrante A — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante B — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante C — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante D — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
-
-### Integrante E — _(nombre)_
-
-- **Errores o imprecisiones técnicas:** 
-- **Supuestos de arquitectura/hardware que omite:** 
-- **Trade-offs que no contempla:** 
-- **Fuente con la que lo verifiqué:** 
+- **Aciertos y cumplimiento:** Explica con claridad el salto conceptual de maximizar instrucciones por segundo a optimizar trabajo por Joule, detallando la integración en Linux de **EAS** (Energy Aware Scheduling), **PELT**, **uclamp** y el gobernador **schedutil**, además de diferenciar las implementaciones de Intel (Thread Director / HFI) y Apple (QoS classes).
+- **Vacíos y puntos críticos:**
+  - *Fricción entre EAS y el balanceo de carga tradicional:* El modelo presenta a EAS como una solución limpia, pero omite que EAS solo opera cuando el sistema está por debajo del punto de sobreutilización (*overutilized*). En el instante en que la demanda supera un umbral (típicamente ~80 % de la capacidad del sistema), Linux desactiva EAS y revierte al balanceador de carga clásico basado en rendimiento, lo que puede provocar picos abruptos de consumo térmico y *thermal throttling* sostenido en dispositivos móviles.
+  - *Restricción de ISA compartida:* En sus supuestos establece que todos los núcleos comparten el mismo ISA. Aunque es cierto a nivel de arquitectura base (ARMv8/v9 o x86-64), omite un problema real en silicio heterogéneo: las asimetrías de extensiones vectoriales (por ejemplo, cuando Intel deshabilitó AVX-512 en los P-cores de Alder Lake porque los E-cores no lo soportaban), lo que obliga al SO o al compilador a restringir el conjunto de instrucciones al mínimo común denominador.
 
 ## 4. Solución unificada del equipo
 
-<!-- Postura técnica definitiva, justificada con teoría. Añadir pseudocódigo, diagrama (en /diagramas) o syscalls cuando aplique. -->
-
 ### Postura del equipo
+
+En hardware heterogéneo el planificador decide dónde corre cada tarea con un objetivo de energía por trabajo realizado, sujeto a latencia. EAS es el mecanismo central en Linux, pero tiene un régimen de operación limitado y la heterogeneidad no es solo de rendimiento: también puede ser de conjunto de instrucciones.
 
 ### Justificación
 
+- **EAS solo actúa mientras el sistema no está sobreutilizado.** Un CPU se considera sobreutilizado cuando su utilización supera cerca del 80 % de su capacidad; cuando ocurre, el dominio vuelve al balanceo de carga clásico orientado a rendimiento. En cargas sostenidas eso sube el consumo y puede llevar a *thermal throttling* en móviles.
+- **La ISA puede no ser idéntica en la práctica.** En Alder Lake, Intel deshabilitó AVX-512 en los P-cores porque los E-cores no lo soportaban. El sistema debe limitarse al mínimo común denominador o restringir los hilos que usan esas extensiones a cierto tipo de núcleo.
+- La información útil para planificar (PELT, uclamp, HFI/Thread Director, clases QoS de Apple) es lo que diferencia a los sistemas modernos del SMP clásico.
+
 ### Aplicación en sistemas de producción
 
+- **Móviles (Android):** EAS + schedutil + uclamp para la app en primer plano; tareas de fondo restringidas a núcleos pequeños.
+- **Escritorio x86 híbrido:** aprovechar HFI/Thread Director y no fijar manualmente hilos críticos a E-cores.
+- **Centros de datos verdes:** separar por *node pools* las cargas de baja intensidad hacia CPUs de núcleos eficientes y medir energía por solicitud, no solo utilización.
+
 ### Referencias
+
+- Documentación del kernel: `scheduler/sched-energy`, `scheduler/sched-capacity`.
+- Documentación de Intel sobre Thread Director y Hardware Feedback Interface.
